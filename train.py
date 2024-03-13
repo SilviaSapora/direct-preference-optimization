@@ -39,7 +39,8 @@ def worker_main(rank: int, world_size: int, config: DictConfig, policy: nn.Modul
 
     TrainerClass = getattr(trainers, config.trainer)
     print(f'Creating trainer on process {rank} with world size {world_size}')
-    trainer = TrainerClass(policy, config, config.seed, config.local_run_dir, reference_model=reference_model, rank=rank, world_size=world_size)
+    #config.seed
+    trainer = TrainerClass(policy, config, 1, config.local_run_dir, reference_model=reference_model, rank=rank, world_size=world_size)
 
     trainer.train()
     trainer.save()
@@ -115,4 +116,5 @@ def main(config: DictConfig):
 
 
 if __name__ == '__main__':
+    print("Visible devices", torch.cuda.device_count())
     main()

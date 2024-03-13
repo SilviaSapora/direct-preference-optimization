@@ -41,6 +41,13 @@ import json
 import functools
 from typing import Optional, Dict, List, Union, Tuple
 
+class Tsallis_Entropy():
+    def __init__(self, q):
+        self.q = q
+
+    def phi_inv(self, x):
+        return (self.q * x**(self.q-1) ) / (self.q - 1)
+
 
 def preference_loss(policy_chosen_logps: torch.FloatTensor,
                     policy_rejected_logps: torch.FloatTensor,
@@ -48,7 +55,7 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
                     reference_rejected_logps: torch.FloatTensor,
                     beta: float,
                     label_smoothing: float = 0.0,
-                    ipo: bool = False,
+                    loss_type: str = "DPO",
                     reference_free: bool = False) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     """Compute the DPO loss for a batch of policy and reference model log probabilities.
 
@@ -67,22 +74,47 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
         The losses tensor contains the DPO loss for each example in the batch.
         The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
     """
-    pi_logratios = policy_chosen_logps - policy_rejected_logps
-    ref_logratios = reference_chosen_logps - reference_rejected_logps
+    if loss_type == "B-DPO":
+        policy_chosen_logps = entropy.phi_inv(torch.exp(policy_chosen_logps))
+        policy_rejected_logps = entropy.phi_inv(torch.exp(policy_rejected_logps))
+        ref_chosen_probs = entropy.phi_inv(torch.exp(reference_chosen_logps))
+        ref_rejected_probs = entropy.phi_inv(torch.exp(reference_rejected_logps))
+        entropy = Tsallis_Entropy(0.5)
+        losses = F.logsigmoid(beta * (policy_chosen_logps - policy_rejected_logps - policy_rejected_logps + ref_rejected_probs))
+        
+        chosen_rewards = beta * (policy_chosen_logps - policy_rejected_logps).detach()
+        rejected_rewards = beta * (policy_rejected_logps - ref_rejected_probs).detach()
 
-    if reference_free:
-        ref_logratios = 0
+    elif loss_type == "DPO":
+        pi_logratios = policy_chosen_logps - policy_rejected_logps
+        ref_logratios = reference_chosen_logps - reference_rejected_logps
 
-    logits = pi_logratios - ref_logratios  # also known as h_{\pi_\theta}^{y_w,y_l}
+        if reference_free:
+            ref_logratios = 0
 
-    if ipo:
-        losses = (logits - 1/(2 * beta)) ** 2  # Eq. 17 of https://arxiv.org/pdf/2310.12036v2.pdf
-    else:
-        # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
+        logits = pi_logratios - ref_logratios  # also known as h_{\pi_\theta}^{y_w,y_l}
         losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing
 
-    chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
-    rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
+        chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
+        rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
+
+    elif loss_type == "IPO":
+        pi_logratios = policy_chosen_logps - policy_rejected_logps
+        ref_logratios = reference_chosen_logps - reference_rejected_logps
+
+        if reference_free:
+            ref_logratios = 0
+
+        logits = pi_logratios - ref_logratios
+        losses = (logits - 1/(2 * beta)) ** 2  # Eq. 17 of https://arxiv.org/pdf/2310.12036v2.pdf
+
+        chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
+        rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
+    
+    else:
+        raise ValueError(f'unknown loss {loss_type}')
+
+    
 
     return losses, chosen_rewards, rejected_rewards
 
@@ -226,15 +258,17 @@ class BasicTrainer(object):
         metrics = {}
         train_test = 'train' if train else 'eval'
 
-        if loss_config.name in {'dpo', 'ipo'}:
+        if loss_config.name in {'dpo', 'ipo', 'b-dpo'}:
             policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(self.policy, batch)
             with torch.no_grad():
                 reference_chosen_logps, reference_rejected_logps = self.concatenated_forward(self.reference_model, batch)
 
             if loss_config.name == 'dpo':
-                loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free, 'label_smoothing': loss_config.label_smoothing, 'ipo': False}
+                loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free, 'label_smoothing': loss_config.label_smoothing, 'loss_type': 'DPO'}
             elif loss_config.name == 'ipo':
-                loss_kwargs = {'beta': loss_config.beta, 'ipo': True}
+                loss_kwargs = {'beta': loss_config.beta, 'loss_type': 'IPO'}
+            elif loss_config.name == 'b-dpo':
+                loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free, 'label_smoothing': loss_config.label_smoothing, 'loss_type': 'B-DPO'}
             else:
                 raise ValueError(f'unknown loss {loss_config.name}')
 
@@ -280,7 +314,7 @@ class BasicTrainer(object):
         np.random.seed(self.seed)
         random.seed(self.seed)
 
-        if self.config.loss.name in {'dpo', 'ipo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
             self.reference_model.eval()
 
         self.example_counter = 0
