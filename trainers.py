@@ -74,16 +74,23 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
         The losses tensor contains the DPO loss for each example in the batch.
         The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
     """
+    
+
     if loss_type == "B-DPO":
-        policy_chosen_logps = entropy.phi_inv(torch.exp(policy_chosen_logps))
-        policy_rejected_logps = entropy.phi_inv(torch.exp(policy_rejected_logps))
+        entropy = Tsallis_Entropy(0.5)
+        policy_chosen_probs = entropy.phi_inv(torch.exp(policy_chosen_logps))
+        policy_rejected_probs = entropy.phi_inv(torch.exp(policy_rejected_logps))
         ref_chosen_probs = entropy.phi_inv(torch.exp(reference_chosen_logps))
         ref_rejected_probs = entropy.phi_inv(torch.exp(reference_rejected_logps))
-        entropy = Tsallis_Entropy(0.5)
-        losses = F.logsigmoid(beta * (policy_chosen_logps - policy_rejected_logps - policy_rejected_logps + ref_rejected_probs))
         
-        chosen_rewards = beta * (policy_chosen_logps - policy_rejected_logps).detach()
-        rejected_rewards = beta * (policy_rejected_logps - ref_rejected_probs).detach()
+        chosen_rewards = beta * (policy_chosen_probs - ref_chosen_probs)
+        rejected_rewards = beta * (policy_rejected_probs - ref_rejected_probs)
+
+        losses = F.logsigmoid(chosen_rewards - rejected_rewards)
+
+        chosen_rewards = chosen_rewards.detach()
+        rejected_rewards = rejected_rewards.detach()
+        
 
     elif loss_type == "DPO":
         pi_logratios = policy_chosen_logps - policy_rejected_logps
@@ -221,7 +228,7 @@ class BasicTrainer(object):
             policy_output = self.policy.generate(
                 batch['prompt_input_ids'], attention_mask=batch['prompt_attention_mask'], max_length=self.config.max_length, do_sample=True, pad_token_id=self.tokenizer.pad_token_id)
 
-        if self.config.loss.name in {'dpo', 'ipo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
             ctx = lambda: (FSDP.summon_full_params(self.reference_model, writeback=False, recurse=False) if 'FSDP' in self.config.trainer else contextlib.nullcontext())
             with ctx():
                 reference_output = self.reference_model.generate(
@@ -231,7 +238,7 @@ class BasicTrainer(object):
         policy_output = all_gather_if_needed(policy_output, self.rank, self.world_size)
         policy_output_decoded = self.tokenizer.batch_decode(policy_output, skip_special_tokens=True)
 
-        if self.config.loss.name in {'dpo', 'ipo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
             reference_output = pad_to_length(reference_output, self.config.max_length, self.tokenizer.pad_token_id)
             reference_output = all_gather_if_needed(reference_output, self.rank, self.world_size)
             reference_output_decoded = self.tokenizer.batch_decode(reference_output, skip_special_tokens=True)
@@ -332,7 +339,7 @@ class BasicTrainer(object):
                 if self.config.sample_during_eval:
                     all_policy_samples, all_reference_samples = [], []
                     policy_text_table = wandb.Table(columns=["step", "prompt", "sample"])
-                    if self.config.loss.name in {'dpo', 'ipo'}:
+                    if self.config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
                         reference_text_table = wandb.Table(columns=["step", "prompt", "sample"])
 
                 for eval_batch in (tqdm.tqdm(self.eval_batches, desc='Computing eval metrics') if self.rank == 0 else self.eval_batches):
@@ -359,7 +366,7 @@ class BasicTrainer(object):
 
                         for prompt, sample in zip(eval_batch['prompt'], policy_samples):
                             policy_text_table.add_data(self.example_counter, prompt, sample)
-                        if self.config.loss.name in {'dpo', 'ipo'}:
+                        if self.config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
                             for prompt, sample in zip(eval_batch['prompt'], reference_samples):
                                 reference_text_table.add_data(self.example_counter, prompt, sample)
 
@@ -367,7 +374,7 @@ class BasicTrainer(object):
                 rank0_print(f'eval after {self.example_counter}: {formatted_dict(mean_eval_metrics)}')
                 if self.config.sample_during_eval:                    
                     rank0_print(json.dumps(all_policy_samples[:10], indent=2))
-                    if self.config.loss.name in {'dpo', 'ipo'}:
+                    if self.config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
                         rank0_print(json.dumps(all_reference_samples[:10], indent=2))
 
                 if self.config.wandb.enabled and self.rank == 0:
@@ -375,7 +382,7 @@ class BasicTrainer(object):
 
                     if self.config.sample_during_eval:
                         wandb.log({"policy_samples": policy_text_table}, step=self.example_counter)
-                        if self.config.loss.name in {'dpo', 'ipo'}:
+                        if self.config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
                             wandb.log({"reference_samples": reference_text_table}, step=self.example_counter)
 
                 if self.example_counter > 0:
@@ -518,7 +525,7 @@ class FSDPTrainer(BasicTrainer):
                 apply_activation_checkpointing(self.policy, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn)
                 rank0_print('FSDP activation checkpointing enabled!')
 
-        if config.loss.name in {'dpo', 'ipo'}:
+        if config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
             rank0_print('Sharding reference model...')
             self.reference_model = FSDP(reference_model, **shared_fsdp_kwargs)
         
@@ -566,7 +573,7 @@ class TensorParallelTrainer(BasicTrainer):
         
         rank0_print('Sharding policy...')
         self.policy = tp.tensor_parallel(policy, sharded=True)
-        if config.loss.name in {'dpo', 'ipo'}:
+        if config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
             rank0_print('Sharding reference model...')
             self.reference_model = tp.tensor_parallel(reference_model, sharded=False)
 

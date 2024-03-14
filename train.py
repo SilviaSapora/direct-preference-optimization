@@ -13,6 +13,7 @@ import json
 import socket
 from typing import Optional, Set
 import resource
+import sys
 
 
 OmegaConf.register_new_resolver("get_local_run_dir", lambda exp_name, local_dirs: get_local_run_dir(exp_name, local_dirs))
@@ -98,7 +99,7 @@ def main(config: DictConfig):
         step, metrics = state_dict['step_idx'], state_dict['metrics']
         print(f'loading pre-trained weights at step {step} from {config.model.archive} with metrics {json.dumps(metrics, indent=2)}')
         policy.load_state_dict(state_dict['state'])
-        if config.loss.name in {'dpo', 'ipo'}:
+        if config.loss.name in {'dpo', 'ipo', 'b-dpo'}:
             reference_model.load_state_dict(state_dict['state'])
         print('loaded pre-trained weights')
     
@@ -115,5 +116,4 @@ def main(config: DictConfig):
 
 
 if __name__ == '__main__':
-    print("Visible devices", torch.cuda.device_count())
     main()
