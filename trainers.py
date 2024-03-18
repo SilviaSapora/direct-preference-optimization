@@ -106,14 +106,19 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
         pi_logratios = policy_chosen_logps - policy_rejected_logps
         ref_logratios = reference_chosen_logps - reference_rejected_logps
 
+        print("pi_logratios", pi_logratios.mean())
+        print("ref_logratios", ref_logratios.mean())
         if reference_free:
             ref_logratios = 0
 
         logits = pi_logratios - ref_logratios  # also known as h_{\pi_\theta}^{y_w,y_l}
         losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing
+        print("losses", losses.mean())
 
         chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
         rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
+        print("chosen_rewards", chosen_rewards.mean())
+        print("rejected_rewards", rejected_rewards.mean())
 
     elif loss_type == "IPO":
         pi_logratios = policy_chosen_logps - policy_rejected_logps
