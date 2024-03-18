@@ -89,8 +89,8 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
         print("ref_chosen_logps", ref_chosen_logps.mean())
         print("ref_rejected_logps", ref_rejected_logps.mean())
         max_float = torch.finfo(policy_chosen_probs.dtype).max
-        chosen_rewards = beta * (torch.exp(policy_chosen_probs) - torch.exp(ref_chosen_probs))
-        rejected_rewards = beta * (torch.exp(policy_rejected_probs) - torch.exp(ref_rejected_probs))
+        chosen_rewards = beta * (torch.exp(policy_chosen_logps) - torch.exp(ref_chosen_logps))
+        rejected_rewards = beta * (torch.exp(policy_rejected_logps) - torch.exp(ref_rejected_logps))
         chosen_rewards = torch.nan_to_num(chosen_rewards, nan=0.0, posinf=max_float, neginf=-max_float)
         rejected_rewards = torch.nan_to_num(rejected_rewards, nan=0.0, posinf=max_float, neginf=-max_float)
         print("chosen_rewards", chosen_rewards.mean())
