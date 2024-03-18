@@ -47,7 +47,7 @@ class Tsallis_Entropy():
 
     def phi_inv(self, x):
         res = (self.q * x**(self.q-1) ) / (self.q - 1)
-        max_float = torch.finfo(q.dtype).max
+        max_float = torch.finfo(x.dtype).max
         res = torch.nan_to_num(res, nan=0.0, posinf=0.0, neginf=-max_float)
         return res
 
