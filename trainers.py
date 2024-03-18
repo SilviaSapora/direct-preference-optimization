@@ -46,10 +46,7 @@ class Tsallis_Entropy():
         self.q = q
 
     def phi_inv(self, x):
-        res = (self.q * x**(self.q-1) ) / (self.q - 1)
-        max_float = torch.finfo(x.dtype).max
-        res = torch.nan_to_num(res, nan=0.0, posinf=0.0, neginf=-max_float)
-        return res
+        return torch.log(self.q) + x**(self.q-1) - torch.log(self.q - 1)
 
 
 
@@ -82,17 +79,20 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
 
     if loss_type == "B-DPO":
         entropy = Tsallis_Entropy(0.5)
-        policy_chosen_probs = entropy.phi_inv(torch.exp(policy_chosen_logps))
-        policy_rejected_probs = entropy.phi_inv(torch.exp(policy_rejected_logps))
-        ref_chosen_probs = entropy.phi_inv(torch.exp(reference_chosen_logps))
-        ref_rejected_probs = entropy.phi_inv(torch.exp(reference_rejected_logps))
+        policy_chosen_logps = entropy.phi_inv(policy_chosen_logps)
+        policy_rejected_logps = entropy.phi_inv(policy_rejected_logps)
+        ref_chosen_logps = entropy.phi_inv(reference_chosen_logps)
+        ref_rejected_logps = entropy.phi_inv(reference_rejected_logps)
         
-        print("policy_chosen_probs", policy_chosen_probs.mean())
-        print("policy_rejected_probs", policy_rejected_probs.mean())
-        print("ref_chosen_probs", ref_chosen_probs.mean())
-        print("ref_rejected_probs", ref_rejected_probs.mean())
-        chosen_rewards = beta * (policy_chosen_probs - ref_chosen_probs)
-        rejected_rewards = beta * (policy_rejected_probs - ref_rejected_probs)
+        print("policy_chosen_logps", policy_chosen_logps.mean())
+        print("policy_rejected_logps", policy_rejected_logps.mean())
+        print("ref_chosen_logps", ref_chosen_logps.mean())
+        print("ref_rejected_logps", ref_rejected_logps.mean())
+        max_float = torch.finfo(policy_chosen_probs.dtype).max
+        chosen_rewards = beta * (torch.exp(policy_chosen_probs) - torch.exp(ref_chosen_probs))
+        rejected_rewards = beta * (torch.exp(policy_rejected_probs) - torch.exp(ref_rejected_probs))
+        chosen_rewards = torch.nan_to_num(chosen_rewards, nan=0.0, posinf=max_float, neginf=-max_float)
+        rejected_rewards = torch.nan_to_num(rejected_rewards, nan=0.0, posinf=max_float, neginf=-max_float)
         print("chosen_rewards", chosen_rewards.mean())
         print("rejected_rewards", rejected_rewards.mean())
 
