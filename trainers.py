@@ -46,7 +46,7 @@ class Tsallis_Entropy():
         self.q = q
 
     def phi_inv(self, x):
-        return torch.log(self.q) + x**(self.q-1) - torch.log(self.q - 1)
+        return torch.log(self.q) + x*(self.q-1) - torch.log(self.q - 1)
 
 
 
