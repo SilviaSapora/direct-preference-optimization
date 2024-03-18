@@ -46,7 +46,11 @@ class Tsallis_Entropy():
         self.q = q
 
     def phi_inv(self, x):
-        return (self.q * x**(self.q-1) ) / (self.q - 1)
+        res = (self.q * x**(self.q-1) ) / (self.q - 1)
+        max_float = torch.finfo(q.dtype).max
+        res = torch.nan_to_num(res, nan=0.0, posinf=0.0, neginf=-max_float)
+        return res
+
 
 
 def preference_loss(policy_chosen_logps: torch.FloatTensor,
@@ -78,15 +82,10 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
 
     if loss_type == "B-DPO":
         entropy = Tsallis_Entropy(0.5)
-        max_float = torch.finfo(policy_chosen_logps.dtype).max
-        exp_policy_chosen_logps = torch.nan_to_num(torch.exp(policy_chosen_logps), nan=0.0, posinf=max_float, neginf=0.0)
-        exp_policy_rejected_logps = torch.nan_to_num(torch.exp(policy_rejected_logps), nan=0.0, posinf=max_float, neginf=0.0)
-        exp_reference_chosen_logps = torch.nan_to_num(torch.exp(reference_chosen_logps), nan=0.0, posinf=max_float, neginf=0.0)
-        exp_reference_rejected_logps = torch.nan_to_num(torch.exp(reference_rejected_logps), nan=0.0, posinf=max_float, neginf=0.0)
-        policy_chosen_probs = entropy.phi_inv(exp_policy_chosen_logps)
-        policy_rejected_probs = entropy.phi_inv(exp_policy_rejected_logps)
-        ref_chosen_probs = entropy.phi_inv(exp_reference_chosen_logps)
-        ref_rejected_probs = entropy.phi_inv(exp_reference_rejected_logps)
+        policy_chosen_probs = entropy.phi_inv(torch.exp(policy_chosen_logps))
+        policy_rejected_probs = entropy.phi_inv(torch.exp(policy_rejected_logps))
+        ref_chosen_probs = entropy.phi_inv(torch.exp(reference_chosen_logps))
+        ref_rejected_probs = entropy.phi_inv(torch.exp(reference_rejected_logps))
         
         print("policy_chosen_probs", policy_chosen_probs.mean())
         print("policy_rejected_probs", policy_rejected_probs.mean())
