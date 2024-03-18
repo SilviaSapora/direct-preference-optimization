@@ -83,10 +83,17 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
         ref_chosen_probs = entropy.phi_inv(torch.exp(reference_chosen_logps))
         ref_rejected_probs = entropy.phi_inv(torch.exp(reference_rejected_logps))
         
+        print("policy_chosen_probs", policy_chosen_probs.mean())
+        print("policy_rejected_probs", policy_rejected_probs.mean())
+        print("ref_chosen_probs", ref_chosen_probs.mean())
+        print("ref_rejected_probs", ref_rejected_probs.mean())
         chosen_rewards = beta * (policy_chosen_probs - ref_chosen_probs)
         rejected_rewards = beta * (policy_rejected_probs - ref_rejected_probs)
+        print("chosen_rewards", chosen_rewards.mean())
+        print("rejected_rewards", rejected_rewards.mean())
 
         losses = F.logsigmoid(chosen_rewards - rejected_rewards)
+        print("losses", losses.mean())
 
         chosen_rewards = chosen_rewards.detach()
         rejected_rewards = rejected_rewards.detach()
@@ -196,7 +203,7 @@ class BasicTrainer(object):
 
         tokenizer_name_or_path = config.model.tokenizer_name_or_path or config.model.name_or_path
         rank0_print(f'Loading tokenizer {tokenizer_name_or_path}')
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_name_or_path, cache_dir="/vols/bitbucket/caalfano/chache") # get_local_dir(config.local_dirs)
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_name_or_path, cache_dir="/vols/bitbucket/sapora/chache") # get_local_dir(config.local_dirs)
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
