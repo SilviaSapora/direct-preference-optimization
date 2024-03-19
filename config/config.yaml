@@ -5,7 +5,7 @@ seed: 0
 exp_name: ???
 
 # the batch size for training; for FSDP, the batch size per GPU is batch_size / (grad_accumulation_steps * num_gpus)
-batch_size: 4 #4
+batch_size: 32 #4
 
 # the batch size during evaluation and sampling, if enabled
 eval_batch_size: 40 #16
@@ -23,7 +23,7 @@ datasets:
 # wandb configuration
 wandb:
   enabled: true
-  entity: rl_theory-org
+  entity: rl_theory
   project: "MD-for-LLMs"
 
 # to create the local run directory and cache models/datasets,

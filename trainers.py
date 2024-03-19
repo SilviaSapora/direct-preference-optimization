@@ -44,11 +44,12 @@ from typing import Optional, Dict, List, Union, Tuple
 class Tsallis_Entropy():
     def __init__(self, q):
         self.q = q
-        self.max_float = torch.finfo(torch.bfloat16).max
+        # self.max_float = torch.finfo(torch.bfloat16).max
 
     def phi_inv(self, x):
-        res = (self.q) + x**(self.q-1) - (self.q - 1)
-        res = torch.nan_to_num(res, nan=0.0, posinf=0., neginf=-self.max_float)
+        x = torch.clamp(x, min=1e-8, max= 1 - 1e-8)
+        res = self.q * x**(self.q - 1) / (self.q - 1)
+        # res = torch.nan_to_num(res, nan=0.0, posinf=0., neginf=-self.max_float)
         return res
 
 
@@ -90,17 +91,48 @@ def preference_loss(policy_chosen_logps: torch.FloatTensor,
         print("policy_rejected_probs", policy_rejected_probs.mean())
         print("ref_chosen_probs", ref_chosen_probs.mean())
         print("ref_rejected_probs", ref_rejected_probs.mean())
+
         chosen_rewards = beta * (policy_chosen_probs - ref_chosen_probs)
         rejected_rewards = beta * (policy_rejected_probs - ref_rejected_probs)
+        losses = -F.logsigmoid(chosen_rewards-rejected_rewards) 
         print("chosen_rewards", chosen_rewards.mean())
         print("rejected_rewards", rejected_rewards.mean())
-
-        losses = F.logsigmoid(chosen_rewards - rejected_rewards)
         print("losses", losses.mean())
+
 
         chosen_rewards = chosen_rewards.detach()
         rejected_rewards = rejected_rewards.detach()
         
+        
+        # q = 0.5
+        # chosen_temp = 1 - torch.exp((reference_chosen_logps - policy_chosen_logps) * (q - 1))
+        # chosen_rewards = beta * q / (q - 1) * torch.exp(policy_chosen_logps * (q - 1)) * chosen_temp
+        # rejected_temp = 1 - torch.exp((reference_rejected_logps - policy_rejected_logps) * (q - 1))
+        # rejected_rewards = beta * q / (q - 1) * torch.exp(policy_chosen_logps * (q - 1)) * rejected_temp
+
+        # # print("chosen_temp", chosen_temp.mean())
+        # # print("chosen_rewards", chosen_rewards.mean())
+        # # print("rejected_temp", rejected_temp.mean())
+        # # print("rejected_rewards", rejected_rewards.mean())
+        # temp0 = torch.min(torch.concat((policy_chosen_logps, policy_rejected_logps, reference_rejected_logps, reference_chosen_logps), dim=0), dim=0).values
+        # temp1 = torch.clamp(torch.exp((policy_chosen_logps - temp0) * (q - 1)), min = 1e-5)
+        # temp2 = torch.clamp(torch.exp((policy_rejected_logps - temp0) * (q - 1)), min = 1e-5)
+        # temp3 = torch.clamp(torch.exp((reference_chosen_logps - temp0) * (q - 1)), min = 1e-5)
+        # temp4 = torch.clamp(torch.exp((reference_rejected_logps - temp0) * (q - 1)), min = 1e-5)
+        # losstemp = (temp1 - temp2 - temp3 + temp4)
+        # clipped_temp0 = torch.clamp(torch.exp(temp0 * (q - 1)), max=1e5)
+        # losses = - F.logsigmoid( beta * q / (q - 1) * clipped_temp0 * losstemp)
+
+        # print("temp0", temp0.mean())
+        # print("temp1", temp1.mean())
+        # print("temp2", temp2.mean())
+        # print("temp3", temp3.mean())
+        # print("temp4", temp4.mean())
+        # print("losstemp", losstemp.mean())
+        # print("losses", losses.mean())
+
+        # chosen_rewards = torch.ones_like(chosen_rewards)
+        # rejected_rewards = torch.ones_like(rejected_rewards)
 
     elif loss_type == "DPO":
         pi_logratios = policy_chosen_logps - policy_rejected_logps
